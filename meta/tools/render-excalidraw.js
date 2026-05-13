@@ -33,6 +33,10 @@ async function render(inputPath, outputPath) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
+  page.on('console', (msg) => console.log(`[page.${msg.type()}]`, msg.text()));
+  page.on('pageerror', (err) => console.error('[page.error]', err.message));
+  page.on('requestfailed', (req) => console.error('[page.requestfailed]', req.url(), req.failure()?.errorText));
+
   const hostUrl = 'file://' + path.resolve(__dirname, 'render-host.html').replace(/\\/g, '/');
   await page.goto(hostUrl);
   await page.waitForFunction(() => window.__ready === true, { timeout: 15000 });

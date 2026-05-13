@@ -108,6 +108,7 @@ node render-excalidraw.js ../../projects/foo/diagrams/architecture.excalidraw
 - **`appState.viewBackgroundColor`** controls the canvas background. Set to `#ffffff` for clean PNG exports.
 - **`files: {}`** is required even when empty; omitting it breaks some Excalidraw versions.
 - **Long text in boxes needs `roundness: null`** if you want sharp corners, or `{ type: 3 }` for the default rounded style.
+- **Renderer uses `@excalidraw/utils`**, NOT `@excalidraw/excalidraw`. Both expose `exportToBlob` but the utils package is leaner (no React component code). If you swap to `@excalidraw/excalidraw`, the API call is identical.
 
 ## When NOT to use this
 

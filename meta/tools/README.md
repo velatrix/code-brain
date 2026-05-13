@@ -39,11 +39,18 @@ If `output.png` is omitted, output is written next to the input with `.png` exte
 3. The script reads the `.excalidraw` JSON, calls `window.renderScene()` which invokes `exportToBlob`.
 4. The blob is converted to a base64 data URL, returned to Node, decoded, and written to disk.
 
-**Status: untested.** First diagram rendering will validate this. If it fails, common fixes:
-- Bump the `@excalidraw/excalidraw` version pin in `render-host.html` (currently `0.17.0`).
-- Check the esm.sh URL still resolves.
-- Switch to a different CDN (`esm.run`, `skypack`) if esm.sh has issues.
-- If `exportToBlob` isn't available in the bundled export, switch to `@excalidraw/utils` or render via the full React component.
+**Status: verified working** (first render on 2026-05-13 produced `wiki/vappcore-architecture.png` correctly).
+
+Implementation notes:
+- Uses `@excalidraw/utils` (NOT `@excalidraw/excalidraw`) — utils is the headless utility package, no React component bloat.
+- The URL is unpinned (`https://esm.sh/@excalidraw/utils`) — esm.sh resolves to the latest. If a future Excalidraw release breaks the API, pin a known-good version (e.g. `@excalidraw/utils@0.1.x`).
+- esm.sh URLs are cached by Playwright's browser cache; first run downloads, subsequent runs are fast.
+- The renderer logs page console messages, page errors, and failed requests by default — useful when things break.
+
+If it ever fails:
+- Check page errors / requestfailed logs in stderr (the renderer already routes them).
+- Try `https://esm.sh/@excalidraw/utils@latest` explicitly.
+- Try the full `@excalidraw/excalidraw` package — it also exports `exportToBlob`.
 
 ## Adding new tools
 

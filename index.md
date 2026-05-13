@@ -10,7 +10,7 @@ Content catalog of the vault. Agents read this first to orient before drilling i
 
 ## Entities
 
-_None yet._
+- [[wiki/vappcore|VAppCore]] — user's enterprise .NET 10 web API library
 
 ## Concepts
 
