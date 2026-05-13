@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "CLAUDE.md",
-                "mode": "preview",
+                "file": "wiki/vappcore.md",
+                "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "CLAUDE"
+              "title": "vappcore"
             }
           }
         ]
@@ -94,13 +94,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "CLAUDE.md",
+                "file": "wiki/vappcore.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of CLAUDE"
+              "title": "Outline of vappcore"
             }
           },
           {
@@ -121,12 +121,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "CLAUDE.md",
+                "file": "wiki/vappcore.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from CLAUDE"
+              "title": "Outgoing links from vappcore"
             }
           },
           {
@@ -149,7 +149,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "CLAUDE.md",
+                "file": "wiki/vappcore.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -159,7 +159,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for CLAUDE"
+              "title": "Backlinks for vappcore"
             }
           }
         ]
@@ -184,18 +184,20 @@
   },
   "active": "669f938ca2718f58",
   "lastOpenFiles": [
+    "wiki/vappcore.md.tmp.26960.1778639465377",
+    "wiki/vappcore-architecture.excalidraw",
+    "wiki/vappcore.md",
+    "wiki/vappcore-architecture.png",
+    "CLAUDE.md",
     "meta/references/excalidraw.md.tmp.26960.1778639034785",
     "meta/tools/README.md.tmp.26960.1778639030989",
     "index.md.tmp.26960.1778639020716",
-    "wiki/vappcore-architecture.png",
     "meta/tools/render-excalidraw.js.tmp.26960.1778638964901",
     "meta/tools/render-host.html.tmp.26960.1778638962627",
     "meta/tools/render-excalidraw.js.tmp.26960.1778638939250",
     "meta/tools/render-host.html.tmp.26960.1778638936837",
     "meta/tools/render-excalidraw.js.tmp.26960.1778638874778",
     "meta/tools/package-lock.json",
-    "meta/tools/node_modules/playwright-core/lib/vite/traceViewer/manifest.webmanifest",
-    "meta/tools/node_modules/playwright-core/ThirdPartyNotices.txt",
     "meta/tools/node_modules/playwright-core/lib/vite/dashboard/assets/safari-na3_-uQk.svg",
     "meta/tools/node_modules/playwright-core/lib/vite/traceViewer/playwright-logo.svg",
     "meta/tools/node_modules/playwright-core/lib/vite/recorder/playwright-logo.svg",
@@ -220,14 +222,12 @@
     "meta/tools/node_modules/playwright/README.md",
     "meta/tools/node_modules/playwright/lib/agents/playwright-test-generate.prompt.md",
     "meta/tools/node_modules/playwright/lib/agents/playwright-test-coverage.prompt.md",
-    "wiki/vappcore.md",
     "meta/templates/wiki-summary.md",
     "meta/templates/wiki-entity.md",
     "meta/templates/wiki-concept.md",
     "meta/templates/research.md",
     "meta/templates/project.md",
     "meta/templates/guide.md",
-    "meta/templates/design.md",
-    "meta/templates/adr.md"
+    "meta/templates/design.md"
   ]
 }

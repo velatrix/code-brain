@@ -221,21 +221,50 @@ services.AddVServices(typeof(Program).Assembly);   // scan-register
 
 **Built-in methods:**
 
-| Method | Behavior |
-|---|---|
-| `GetByIdAsync(id, q?)` | Returns entity or throws `NotFoundError` (404) |
-| `FindByIdAsync(id, q?)` | Returns entity or `null` |
-| `GetPagedAsync(parser, q?)` | Runs the parser against `Set` (or scoped query) — returns `VPagedResponse<T>` |
-| `DeleteAsync(id)` | Soft or hard depending on `ISoftDeletable`; throws 404 if not found. Overridable. |
-| `SaveAsync()` | Shortcut for `Db.SaveChangesAsync()` |
+| Method                      | Behavior                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `GetByIdAsync(id, q?)`      | Returns entity or throws `NotFoundError` (404)                                    |
+| `FindByIdAsync(id, q?)`     | Returns entity or `null`                                                          |
+| `GetPagedAsync(parser, q?)` | Runs the parser against `Set` (or scoped query) — returns `VPagedResponse<T>`     |
+| `DeleteAsync(id)`           | Soft or hard depending on `ISoftDeletable`; throws 404 if not found. Overridable. |
+| `SaveAsync()`               | Shortcut for `Db.SaveChangesAsync()`                                              |
+|                             |                                                                                   |
 
 ## RSQL query parsing & `VQueryFilter`
 
-Reads `filter`, `sort`, `select`, `cursor`/`before`, `page`, `limit` from query string. RSQL filter syntax (e.g. `name==John;age=gt=25,status=in=(Active,Pending)`).
+Reads `filter`, `sort`, `select`, `cursor`/`before`, `page`, `limit` from query string. RSQL filter syntax:
 
-**Operators:** `==`, `!=`, `=gt=`, `=ge=`, `=lt=`, `=le=`, `=in=`, `=out=`, `=like=`, `=ilike=`, `=isnull=`, `=isnotnull=`. AND is `;`, OR is `,`, parentheses override precedence.
+```
+name==John;age=gt=25,status=in=(Active,Pending)
+```
 
-**Like patterns:** `*val*` (contains), `val*` (starts), `*val` (ends), `*v*l*` (regex).
+**Operators:**
+
+| Operator     | Meaning                 |
+| ------------ | ----------------------- |
+| `==`         | equal                   |
+| `!=`         | not equal               |
+| `=gt=`       | greater than            |
+| `=ge=`       | greater or equal        |
+| `=lt=`       | less than               |
+| `=le=`       | less or equal           |
+| `=in=`       | in set                  |
+| `=out=`      | not in set              |
+| `=like=`     | like (with `*` patterns) |
+| `=ilike=`    | case-insensitive like   |
+| `=isnull=`   | is null                 |
+| `=isnotnull=`| is not null             |
+
+Combinators: `;` is AND, `,` is OR, parentheses override precedence.
+
+**Like patterns:**
+
+| Pattern  | Meaning      |
+| -------- | ------------ |
+| `*val*`  | contains     |
+| `val*`   | starts with  |
+| `*val`   | ends with    |
+| `*v*l*`  | regex-like   |
 
 ### `VQueryFilter<T>` whitelist
 
