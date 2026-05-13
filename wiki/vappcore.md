@@ -240,20 +240,20 @@ name==John;age=gt=25,status=in=(Active,Pending)
 
 **Operators:**
 
-| Operator     | Meaning                 |
-| ------------ | ----------------------- |
-| `==`         | equal                   |
-| `!=`         | not equal               |
-| `=gt=`       | greater than            |
-| `=ge=`       | greater or equal        |
-| `=lt=`       | less than               |
-| `=le=`       | less or equal           |
-| `=in=`       | in set                  |
-| `=out=`      | not in set              |
-| `=like=`     | like (with `*` patterns) |
-| `=ilike=`    | case-insensitive like   |
-| `=isnull=`   | is null                 |
-| `=isnotnull=`| is not null             |
+| Operator      | Meaning                  |
+| ------------- | ------------------------ |
+| `==`          | equal                    |
+| `!=`          | not equal                |
+| `=gt=`        | greater than             |
+| `=ge=`        | greater or equal         |
+| `=lt=`        | less than                |
+| `=le=`        | less or equal            |
+| `=in=`        | in set                   |
+| `=out=`       | not in set               |
+| `=like=`      | like (with `*` patterns) |
+| `=ilike=`     | case-insensitive like    |
+| `=isnull=`    | is null                  |
+| `=isnotnull=` | is not null              |
 
 Combinators: `;` is AND, `,` is OR, parentheses override precedence.
 
@@ -320,7 +320,16 @@ Disallowed fields → HTTP 422 with the list of allowed fields.
 
 Response shape is unified `VPagedResponse<T>` for both modes; cursor mode has `nextCursor`/`previousCursor`, offset mode adds `page`/`totalItems`/`totalPages`.
 
-**Cursor encryption** — `o.CursorEncryptionKeys = [key1, key2]` enables AES-GCM with key rotation. KMS / Key Vault via custom `ICursorProtector` in DI before `AddVAppCore`.
+**Cursor encryption** — set `CursorEncryptionKeys` on options to enable AES-GCM with key rotation:
+
+```csharp
+services.AddVAppCore<AppDb, Guid, Guid>(o =>
+{
+    o.CursorEncryptionKeys = [currentKey, previousKey];
+});
+```
+
+KMS / Key Vault via custom `ICursorProtector` in DI before `AddVAppCore`.
 
 **Cursor + `CustomField` sorts** — rejected with 400 in cursor mode (the computed expression can't be reproduced in the cursor WHERE clause). Use offset mode for computed-field sorts.
 
@@ -422,7 +431,14 @@ services.AddVAppCoreRateLimiting(o =>
 app.UseVRateLimiting();   // after UseRouting, before MapControllers
 ```
 
-**Default policies** (override via `o.Policies[name] = new RateLimitPolicy(...)`):
+**Default policies** — override or extend via the `Policies` dictionary on options:
+
+```csharp
+services.AddVAppCoreRateLimiting(o =>
+{
+    o.Policies["custom-policy"] = new RateLimitPolicy(...);
+});
+```
 
 | Policy | Limit | For |
 |---|---|---|
@@ -430,13 +446,18 @@ app.UseVRateLimiting();   // after UseRouting, before MapControllers
 | `VAppCoreRateLimitPolicies.Mutation` | 60/min | POST/PUT/DELETE on user data |
 | `VAppCoreRateLimitPolicies.Read` | 300/min | GET endpoints |
 
-**Apply:** `[VRateLimit(policy, Cost = N)]` on action/controller.
+**Apply** the `VRateLimit` attribute to a controller or action with the policy name and an optional `Cost`:
+
+```csharp
+[VRateLimit("mutation", Cost = 5)]
+public Task<IActionResult> CreateLobby(...);
+```
 
 **Partitioner:** default is `user-{id}` for authenticated, `ip-{remoteIp}` for anonymous. Override via custom `IRateLimitPartitioner`.
 
 **Tier multipliers:** keyed by role; highest match applied to capacity AND refill rate.
 
-**Rejection:** HTTP 429 with `Retry-After` header + standard error envelope (`metadata.kind = "rate_limited"`).
+**Rejection:** HTTP 429 with `Retry-After` header and the standard error envelope; the metadata kind is `rate_limited`.
 
 **Distributed:** swap `MemoryRateLimitStore` for `VAppCore.RateLimiting.Redis` (separate NuGet) — atomic Lua script, multi-instance safe.
 

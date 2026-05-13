@@ -209,7 +209,15 @@ If you encounter unfamiliar conventions, files, or branches, **investigate befor
 
 ---
 
-## 14. Updating this document
+## 14. Obsidian markdown gotchas
+
+Obsidian extends CommonMark with features that collide with technical syntax. Cases learned the hard way:
+
+- **`==text==` is highlight syntax.** Don't write inline expressions containing `==` (equality operators, RSQL like `name==John`, C# operator examples). Even backticks don't reliably save it because Obsidian's preview can pair the `==` across inline-code boundaries. **Put such content in fenced code blocks, or in a table where each `==` lives in its own cell (no second `==` on the same line to close a highlight span).**
+
+When in doubt, prefer fenced code blocks (```` ``` ````) or markdown tables over inline backticks for content with operator characters.
+
+## 15. Updating this document
 
 CLAUDE.md is a living document. Update it when:
 - A new convention is adopted (e.g. a new note type)
