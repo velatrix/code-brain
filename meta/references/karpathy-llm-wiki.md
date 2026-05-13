@@ -1,4 +1,16 @@
 
+---
+type: reference
+title: Karpathy LLM Wiki Pattern
+source: https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
+author: Andrej Karpathy
+created: 2026-05-13
+updated: 2026-05-13
+tags: [external, design-inspiration]
+---
+
+> External reference. The design of this vault is inspired by this gist by Andrej Karpathy. See [[CLAUDE]] for how we adopted it.
+
 A pattern for building personal knowledge bases using LLMs.
 
 This is an idea file, it is designed to be copy pasted to your own LLM Agent (e.g. OpenAI Codex, Claude Code, OpenCode / Pi, or etc.). Its goal is to communicate the high level idea, but your agent will build out the specifics in collaboration with you.

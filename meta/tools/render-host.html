@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Excalidraw Render Host</title>
+</head>
+<body>
+  <div id="output"></div>
+  <script type="module">
+    import { exportToBlob } from 'https://esm.sh/@excalidraw/excalidraw@0.17.0?bundle';
+
+    window.renderScene = async function(sceneJson) {
+      const scene = typeof sceneJson === 'string' ? JSON.parse(sceneJson) : sceneJson;
+      const blob = await exportToBlob({
+        elements: scene.elements || [],
+        appState: {
+          ...(scene.appState || {}),
+          exportBackground: true,
+          viewBackgroundColor: (scene.appState && scene.appState.viewBackgroundColor) || '#ffffff',
+        },
+        files: scene.files || {},
+        mimeType: 'image/png',
+      });
+      return await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+    };
+
+    window.__ready = true;
+  </script>
+</body>
+</html>

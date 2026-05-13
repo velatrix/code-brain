@@ -1,4 +1,9 @@
 {
   "alwaysUpdateLinks": true,
-  "attachmentFolderPath": "raw/attachments"
+  "attachmentFolderPath": "raw/attachments",
+  "readableLineLength": false,
+  "strictLineBreaks": false,
+  "foldHeading": true,
+  "showLineNumber": false,
+  "showIndentGuide": true
 }
