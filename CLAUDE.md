@@ -209,13 +209,15 @@ If you encounter unfamiliar conventions, files, or branches, **investigate befor
 
 ---
 
-## 14. Obsidian markdown gotchas
+## 14. Markdown gotchas (Obsidian + Dataview)
 
-Obsidian extends CommonMark with features that collide with technical syntax. Cases learned the hard way:
+Obsidian extends CommonMark, and Dataview adds another parser on top. Both can collide with technical syntax in subtle ways. Cases learned the hard way:
 
-- **`==text==` is highlight syntax.** Don't write inline expressions containing `==` (equality operators, RSQL like `name==John`, C# operator examples). Even backticks don't reliably save it because Obsidian's preview can pair the `==` across inline-code boundaries. **Put such content in fenced code blocks, or in a table where each `==` lives in its own cell (no second `==` on the same line to close a highlight span).**
+- **`==text==` is Obsidian highlight syntax.** Don't write inline expressions containing `==` (equality operators, RSQL like `name==John`, C# operator examples). Even backticks don't reliably save it because Obsidian's preview can pair the `==` across inline-code boundaries.
 
-When in doubt, prefer fenced code blocks (```` ``` ````) or markdown tables over inline backticks for content with operator characters.
+- **Dataview scans inline code for bracket+equals patterns.** Things like `` `[VRateLimit(policy, Cost = N)]` `` or `` `o.Policies[name] = new ...` `` cause Dataview to try parsing the bracketed thing as an inline field with `=` as the value, producing a noisy "Dataview (inline field '='): PARSING FAILED" overlay in preview.
+
+**Rule:** if a span has `=`, `==`, brackets-with-equals, or RSQL-style operators, put it in a **fenced code block** (```` ``` ````) or split across **table cells** (one `=` per cell, no second `=` on the same line). Inline backticks are not enough to hide content from either parser reliably.
 
 ## 15. Updating this document
 
