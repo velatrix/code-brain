@@ -1,8 +1,3 @@
----
-type: log
-title: Log
----
-
 # Log
 
 Chronological, append-only record of vault operations. Entry format:
@@ -25,3 +20,6 @@ Verified v1.12.7 working; enabled Dataview, Templater, Excalidraw; installed obs
 
 ## [2026-05-13] wiki | VAppCore entity page + architecture diagram
 Wrote [[wiki/vappcore]] from the VAppCore README (v2.2.0). Generated [[wiki/vappcore-architecture]] via meta/tools/render-excalidraw.js — first end-to-end test of the Node/Playwright renderer (using @excalidraw/utils, not @excalidraw/excalidraw@0.17.0 — that pin was wrong). Slimmed global CLAUDE.md VAppCore section: corrected outdated claims (net8.0 → net10.0, removed VDbContext inheritance which is gone since v1.1), reduced to trigger + key constraints + pointer to vault.
+
+## [2026-05-15] schema | Slim CLAUDE.md; split to root files
+CLAUDE.md 234→85 lines. Spun out [[structure]], [[notes]], [[operations]]. Added Hard Rules section, `:!<name>` operation prefix, "ask before vault writes" + "capture lessons from corrections" meta-rules. Removed frontmatter from root singletons; renamed AI-specific rules → Agent Rules. Deleted README.md.

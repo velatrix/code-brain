@@ -1,9 +1,3 @@
----
-type: index
-title: Index
-updated: 2026-05-13
----
-
 # Index
 
 Content catalog of the vault. Agents read this first to orient before drilling into pages. Update on every ingest, project start, or significant new page.
