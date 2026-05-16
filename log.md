@@ -23,3 +23,6 @@ Wrote [[wiki/vappcore]] from the VAppCore README (v2.2.0). Generated [[wiki/vapp
 
 ## [2026-05-15] schema | Slim CLAUDE.md; split to root files
 CLAUDE.md 234→85 lines. Spun out [[structure]], [[notes]], [[operations]]. Added Hard Rules section, `:!<name>` operation prefix, "ask before vault writes" + "capture lessons from corrections" meta-rules. Removed frontmatter from root singletons; renamed AI-specific rules → Agent Rules. Deleted README.md.
+
+## [2026-05-16] schema | Patterns section added to [[guides/frontend-app-shell]]
+Captured five idioms distilled from a Vue + Naive + Tailwind session where the styling hierarchy was repeatedly violated: NText `depth`/`strong`/`type` for color and weight; prefer NFlex over NSpace; Naive layout primitives over flex divs; NMenu for sidebar nav (don't hand-paint selected state); inline one-place styles instead of extracting to main.css. Also added the guide to [[index]] under Guides.

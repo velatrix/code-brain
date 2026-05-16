@@ -20,7 +20,7 @@ _None yet._
 
 ## Guides
 
-_None yet._
+- [[guides/frontend-app-shell|Frontend App Shell]] — Vue 3 + Naive UI + Tailwind stack, file structure, layouts, styling hierarchy, patterns
 
 ## Archive
 

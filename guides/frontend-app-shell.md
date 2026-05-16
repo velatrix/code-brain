@@ -151,6 +151,64 @@ Pages without a parent layout (rare — e.g., a standalone OAuth callback page) 
 
 ---
 
+## Patterns
+
+Recurring micro-decisions in this stack. Apply them without thinking once they're internalized.
+
+### NText props for color and weight
+
+`<NText :depth="2|3">` for secondary / muted text. `<NText :type="primary|success|warning|error|info">` for semantic colors. `<NText strong>` for bold. These pull from the Naive theme so they stay consistent if tokens shift — and they're shorter than the Tailwind equivalent.
+
+```vue
+<NText :depth="3">Subtle helper text</NText>
+<NText strong>Important label</NText>
+<NText type="primary">Accent eyebrow</NText>
+```
+
+Tailwind text-color classes only for non-text elements (icons, dividers) or when you genuinely need a color outside the theme tokens.
+
+### Prefer `<NFlex>` over `<NSpace>`
+
+NFlex uses native CSS gap and renders a single flex container. NSpace is the older API and wraps each child in a div. Use NFlex for all new layouts.
+
+```vue
+<NFlex vertical :size="18">
+  <NInput ... />
+  <NButton ... />
+</NFlex>
+```
+
+### Naive layout primitives, not flex divs
+
+`<NFlex>` / `<NGrid>` / `<NLayout>` family for any layout. `<div class="flex flex-col gap-4">` is div soup that bypasses the typed primitives the rest of the codebase uses.
+
+```vue
+<NFlex vertical :size="14">...</NFlex>                <!-- vertical stack -->
+<NFlex align="center" :size="12">...</NFlex>          <!-- horizontal row -->
+<NGrid :cols="3" :x-gap="12" :y-gap="12">...</NGrid>  <!-- responsive grid -->
+<NLayout has-sider>...</NLayout>                      <!-- app shell -->
+```
+
+### `<NMenu>` for sidebar / list navigation
+
+Selected state, group headings, hover styling, paddings, and indentation come from the theme. Pass `:value` for the active key and `:options` for the structure.
+
+```vue
+<NMenu v-model:value="selectedKey" :options="navOptions" />
+```
+
+Don't hand-paint nav items with `<div class="bg-surface rounded-lg">` plus a manual `selected` class — that creates an item whose highlight color may match the sider's surface color and end up invisible.
+
+### Inline one-place styles
+
+If a gradient, shadow, or any custom decoration is used on exactly one element, inline it as Tailwind arbitrary values on that element. Promote to a custom utility in `main.css` (or to a reusable component) only when there is genuine reuse.
+
+```vue
+<div class="bg-[linear-gradient(135deg,var(--color-accent),#5b3df0)] shadow-[0_6px_18px_rgba(139,92,246,0.25)]" />
+```
+
+---
+
 ## Styling
 
 Styling hierarchy: **Naive UI → Tailwind → `<style scoped>`**. Start left; only fall right when the previous option genuinely can't express what's needed.
