@@ -24,5 +24,13 @@ Wrote [[wiki/vappcore]] from the VAppCore README (v2.2.0). Generated [[wiki/vapp
 ## [2026-05-15] schema | Slim CLAUDE.md; split to root files
 CLAUDE.md 234→85 lines. Spun out [[structure]], [[notes]], [[operations]]. Added Hard Rules section, `:!<name>` operation prefix, "ask before vault writes" + "capture lessons from corrections" meta-rules. Removed frontmatter from root singletons; renamed AI-specific rules → Agent Rules. Deleted README.md.
 
-## [2026-05-16] schema | Patterns section added to [[guides/frontend-app-shell]]
-Captured five idioms distilled from a Vue + Naive + Tailwind session where the styling hierarchy was repeatedly violated: NText `depth`/`strong`/`type` for color and weight; prefer NFlex over NSpace; Naive layout primitives over flex divs; NMenu for sidebar nav (don't hand-paint selected state); inline one-place styles instead of extracting to main.css. Also added the guide to [[index]] under Guides.
+
+## [2026-05-16] schema | Frontend theme ownership rule
+Added a theme ownership section to [[guides/frontend-app-shell]]: `theme.ts` is the design-token source of truth; `main.css`, Tailwind `@theme`, component CSS, and duplicated constants must not define token values.
+## [2026-05-16] schema | Naive theme var guidance
+Clarified [[guides/frontend-app-shell]] theme ownership: custom Vue components should prefer Naive UI `useThemeVars()` for active theme values; project CSS vars are only for plain CSS/global CSS escape hatches.
+## [2026-05-16] schema | CSS vars as escape hatch
+Updated [[guides/frontend-app-shell]] theme ownership wording so project CSS variables are not the default theme path; they are a minimum, namespaced escape hatch for plain/global CSS only.
+
+## [2026-05-18] project | MediaVault project bootstrapped + storage hardened
+New project [[projects/mediavault/_moc|MediaVault]]. Rust storage layer overhauled in a single session: introduced WAL (snapshot + append-only mutation log) replacing rewrite-all-on-every-mutation; bumped blob format to v3 (AEAD-with-AAD binding header + chunk_idx) so chunk reordering / truncation / splicing attacks are caught; added cross-process file lock via `fs4`; full fsync discipline on every persistent write; streaming exports via `stream_blob` so multi-GB videos export with ~4 MiB peak RAM; v2→v3 migration command. 67 Rust tests passing. Comprehensive design doc at [[projects/mediavault/design/storage]], three ADRs in [[projects/mediavault/decisions/0001-wal-instead-of-rewriting-snapshot|0001]] / [[projects/mediavault/decisions/0002-aad-binding-blob-v3|0002]] / [[projects/mediavault/decisions/0003-cross-process-vault-lock|0003]].
