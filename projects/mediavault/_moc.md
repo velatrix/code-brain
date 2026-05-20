@@ -2,7 +2,7 @@
 type: project
 title: MediaVault
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-05-20
 status: active
 tags: [project, encryption, tauri, rust, vue]
 ---
@@ -13,7 +13,7 @@ tags: [project, encryption, tauri, rust, vue]
 Personal encrypted media vault — a Tauri 2 desktop app that holds the user's photos, videos, and other media in an at-rest-encrypted folder on disk. Open with a password, browse / play / tag / organize, lock to clear the key from RAM. Backend in Rust, frontend in Vue 3 + Naive UI (see [[frontend-app-shell]] for the UI stack).
 
 ## Status
-Stable. Storage layer hardened over a single multi-pass audit (2026-05-18) — WAL added, blob format upgraded to AEAD-with-AAD, full fsync discipline, cross-process file lock, streaming exports. 67 Rust tests pass.
+Stable. Storage layer hardened over a single multi-pass audit (2026-05-18) — WAL added, blob format upgraded to AEAD-with-AAD, full fsync discipline, cross-process file lock, streaming exports. Blob storage bucketed by UUID prefix (2026-05-20) to keep Windows File Explorer responsive at scale. 82 Rust tests pass.
 
 ## Map
 - Storage architecture (master reference): [[design/storage]]
@@ -21,6 +21,7 @@ Stable. Storage layer hardened over a single multi-pass audit (2026-05-18) — W
   - [[decisions/0001-wal-instead-of-rewriting-snapshot]]
   - [[decisions/0002-aad-binding-blob-v3]]
   - [[decisions/0003-cross-process-vault-lock]]
+  - [[decisions/0004-bucketed-blob-layout]]
 
 ## Repository
 `F:\Projects\MediaVault`

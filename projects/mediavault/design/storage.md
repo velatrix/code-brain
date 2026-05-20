@@ -131,9 +131,15 @@ This is the entire relational model. The vault's only foreign-key-like structure
 
 Append-only log of mutations since the last snapshot rewrite. Format documented in §5.
 
-### 2.4 `blobs/<uuid>.enc` and `thumbs/<uuid>.enc`
+### 2.4 `blobs/<aa>/<uuid>.enc` and `thumbs/<aa>/<uuid>.enc`
 
-Per-file encrypted blobs. Each filename is the UUID assigned at import time, with `.enc` suffix. Format documented in §6. Same format for files and thumbnails — only the directory differs.
+Per-file encrypted blobs. Each filename is the UUID assigned at import time, with `.enc` suffix. The blob lives inside a bucket subdir whose name is the first two hex characters of the UUID — 256 buckets, uniform distribution, ~vault_size/256 files per leaf. Format documented in §6. Same format and same layout rules for files and thumbnails — only the parent directory (`blobs/` vs `thumbs/`) differs.
+
+The metadata snapshot (`metadata.enc`) is the exception: it uses the non-UUID id `"metadata"` and stays at the vault root (see §2.2). The bucketing helper in `blobs.rs` checks the id shape and only buckets canonical UUIDv4 strings.
+
+**Why bucketed:** at the design's 50k-file target, a flat `blobs/` directory holds 50k entries. NTFS handles that fine; Windows File Explorer does not — it freezes on open and scrolls choppily. Bucketing puts ~195 files per leaf at that scale, ~2000 at 500k files. Empty buckets aren't materialized — `create_dir_all` runs per write, only buckets that have files exist on disk.
+
+**Migration from flat layout:** existing pre-bucketing vaults heal themselves at unlock via `blobs::migrate_flat_to_bucketed(dir)`. Pure `fs::rename` on the same filesystem, idempotent, non-fatal on per-file failure. See [[decisions/0004-bucketed-blob-layout]] for the trade-off analysis and migration design.
 
 ### 2.5 `vault.lock`
 
