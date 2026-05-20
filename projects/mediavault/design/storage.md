@@ -2,7 +2,7 @@
 type: design
 title: MediaVault Storage Architecture
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-05-21
 status: stable
 tags: [design, storage, encryption, wal, aead]
 ---
@@ -71,10 +71,11 @@ The only plaintext file. Holds the parameters needed to derive the master key fr
 
 When the user types their password:
 1. Derive `password_key = Argon2id(password, salt, params)`.
-2. AES-GCM decrypt `(nonce, ciphertext)` with `password_key`.
-3. The 32-byte result is the master key. Held in `Zeroizing<[u8; 32]>` so it wipes from memory when dropped.
+2. **Floor-check `params`**: refuse if `memoryKib < 64 MiB`, `iterations < 2`, or `parallelism ∉ [1, 64]` (`KdfParams::validate_floor`). Closes the param-downgrade vector where an attacker who can edit `vault.json` weakens Argon2 so the same captured wrap can be ground offline.
+3. AES-GCM decrypt `(nonce, ciphertext)` with `password_key`, using `AAD = memoryKib_le ‖ iterations_le ‖ parallelism_le ‖ salt` (28 bytes). Tampering with any byte of the KDF block invalidates the AAD and fails decrypt → `InvalidPassword`. Legacy vaults written before the AAD binding shipped fall back to empty-AAD decrypt for compatibility.
+4. The 32-byte result is the master key. Held in `Zeroizing<[u8; 32]>` so it wipes from memory when dropped.
 
-A wrong password produces an AEAD auth failure on step 2, surfaced as `VaultError::InvalidPassword`.
+A wrong password produces an AEAD auth failure on step 3, surfaced as `VaultError::InvalidPassword`.
 
 `vault.json` is written via the atomic temp+rename pattern: write to `vault.json.tmp`, `sync_data`, `rename`, fsync parent dir. Power loss can never leave a half-written `vault.json` at the canonical path.
 
@@ -104,12 +105,15 @@ pub struct FileEntry {
     pub imported_at: u64,           // unix seconds
     pub folder_id: Option<String>,  // UUIDv4 of containing folder, None = root
     pub tag_ids: Vec<String>,       // UUIDv4s; m:n on the file side
+    pub deleted_at: Option<u64>,    // None = live, Some(ts) = in trash (ADR-0005)
+    pub extension: String,          // lowercase, no-dot extension derived from `name`
 }
 
 pub struct Folder {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,  // None = root
+    pub deleted_at: Option<u64>,    // None = live, Some(ts) = in trash (ADR-0005)
 }
 
 pub struct Tag {
@@ -126,6 +130,14 @@ pub struct TagGroup {
 ```
 
 This is the entire relational model. The vault's only foreign-key-like structure: files reference folders, files reference tags, tags reference tag groups, folders reference parent folders. All in-memory `Vec`s, indexed by linear scan (fine at ≤ 10k items; see [[#11-performance-characteristics|§11]]).
+
+**Soft delete** (ADR-0005): `FileEntry` and `Folder` carry an optional `deleted_at` timestamp. `None` means live; `Some(unix_seconds)` means the record is in the Trash view. Live UI surfaces filter via `MetadataDoc::live_files()` / `live_folders()`; the Trash view consumes the raw vec. Tags and tag groups have no soft-delete state — `DeleteTag` / `DeleteTagGroup` are destructive in one step.
+
+**Extension** (denormalized): `FileEntry.extension` is the lowercase, no-dot file extension derived from `name`. Kept in sync by the backend on `import_file` and `Mutation::RenameFile.apply` via `extract_extension(&name)`. Stored (not derived on the fly) so the frontend sort-by-extension and any future extension-based filtering can compare a normalized value without parsing filenames per comparison. Old vaults (pre-field) are backfilled by `MetadataDoc::fixup_extensions()`, called once at the end of `unlock` after WAL replay.
+
+**Name uniqueness** (ADR-0006): live entities have case-insensitive uniqueness scoped to their natural siblings — files per `folder_id`, folders per `parent_id`, tags per `group_id`, tag groups globally. Trashed records don't count. Four `MetadataDoc::*_collides_*` helpers run before any persistent write in the relevant mutation paths; `VaultError::NameCollision { kind, name }` surfaces to the frontend as code `NAME_COLLISION`. `restore_file` and `restore_folder` re-check on the way back to live so the invariant survives the trash-and-reimport cycle.
+
+**Name validation** (post-2026-05-21): `metadata::validate_entity_name` runs alongside the uniqueness check on every create / rename / restore path for files and folders. Rejects `/`, `\`, `..`, `.`, null bytes, ASCII control characters, and empty/whitespace-only names with `VaultError::InvalidName` (code `INVALID_NAME`). Closes the zip-slip vector at the source so an attacker-controlled filename can never reach `zip.start_file` as a traversal path. `metadata::sanitize_path_component` provides defense in depth at the export boundary by replacing the same characters with `_` — handles any legacy doc state that predated validation.
 
 ### 2.3 `metadata.wal` — the write-ahead log
 
@@ -154,6 +166,9 @@ Zero-byte file. Exists only so we have something to hold an OS-level exclusive f
 ```rust
 pub struct VaultState {
     inner: Mutex<VaultInner>,
+    /// Monotonically bumped on every `lock()`. Lockless read so streaming
+    /// reads can check between chunks without contending the inner mutex.
+    generation: AtomicU64,
 }
 
 struct VaultInner {
@@ -163,6 +178,8 @@ struct VaultInner {
     lock_file: Option<std::fs::File>,  // None when locked; holds the cross-process lock when Some
 }
 ```
+
+**Generation counter (post-2026-05-21):** long-running streaming operations (`export_file`, `export_zip`, `write_folder_to_zip`) capture `current_generation()` at start and re-check between chunks. `lock()` bumps the counter as its last step, so an export that started before `lock()` aborts on its next chunk write with `io::ErrorKind::Interrupted`. The cloned master key in the export's stack remains valid AES material — the generation check is what stops it from being used to produce more plaintext after the user clicked Lock. Short-lived range reads (one ≤ 4 MiB chunk per call) complete with their cloned key; the post-lock plaintext leak window is bounded to one chunk per in-flight range request.
 
 Three valid states:
 
@@ -278,19 +295,25 @@ The length prefix excludes the nonce — it covers exactly the AEAD output. A re
 
 The plaintext inside the AEAD is `serde_json::to_vec(&mutation)`, where `mutation` is a single variant of the `Mutation` enum (see §7).
 
+**Position binding (post-2026-05-21):** each record's AEAD authenticates an 8-byte AAD = `offset.to_le_bytes()`, where `offset` is the byte position of the record's length prefix in the file. Moving a record to a different offset (or tampering with an earlier length prefix to skip past a later valid record) fails decrypt at the moved record. Pre-2026-05-21 records used empty AAD; the replay path's legacy fallback handles them transparently — see §5.4. Held plaintext on both encrypt and decrypt sides is `Zeroizing<Vec<u8>>` so file/tag/folder names don't linger in the heap.
+
 ### 5.2 Write path — `wal::append`
 
 ```
-1. serde_json::to_vec(&mutation) → plaintext bytes (~100-400 bytes typically)
+1. serde_json::to_vec(&mutation) → plaintext bytes (~100-400 bytes typically),
+   wrapped in Zeroizing<Vec<u8>>
 2. Generate random 12-byte nonce
-3. AES-256-GCM encrypt(nonce, plaintext) → ciphertext (= plaintext + 16-byte tag)
-4. Build a single record buffer: [len_le, nonce, ciphertext]
-5. OpenOptions::new().create(true).append(true).open(path/metadata.wal)
-6. f.write_all(&record)              — one syscall, keeps partial-write window tiny
-7. f.sync_data()                     — bytes durable before we return
-8. drop(f)                           — close
-9. fs::File::open(parent).sync_all() — parent dir entry durable too (best-effort)
+3. fs::metadata(path).len() → offset (where this record will land)
+4. AES-256-GCM encrypt(nonce, plaintext, AAD=offset_le) → ciphertext + tag
+5. Build a single record buffer: [len_le, nonce, ciphertext]
+6. OpenOptions::new().create(true).append(true).open(path/metadata.wal)
+7. f.write_all(&record)              — one syscall, keeps partial-write window tiny
+8. f.sync_data()                     — bytes durable before we return
+9. drop(f)                           — close
+10. fs::File::open(parent).sync_all() — parent dir entry durable too (best-effort)
 ```
+
+Step 3 is race-free because we hold the cross-process `vault.lock` for the duration of the append — no other writer can change the file size between the stat and the write.
 
 Each step is bounded. Total append cost: ~2-5 ms on NVMe, mostly fsync. Independent of the vault's total size — this is the whole point of the WAL.
 
@@ -329,6 +352,8 @@ Called once at unlock time after loading the snapshot. Decrypts every record in 
 - **Failure with `applied > 0`** (records succeeded then one failed): treat as a partial tail from a crashed `append` — break the loop, truncate the file to the last good boundary. Earlier records are durable and applied; the last record was mid-write when the process died.
 
 This isn't theoretical — without it, an attacker (or transient bug) that produces invalid bytes at the start of the WAL could silently nuke the user's recent mutations.
+
+**Legacy fallback (transition):** on each record's decrypt attempt, the reader first tries `AAD=offset`. On failure it retries with empty AAD before deciding the record is corrupt — that's what lets pre-2026-05-21 WAL files (no AAD binding) replay under the current code. After the first `lock()` cycle post-upgrade, compaction folds the legacy records into the snapshot and truncates the WAL; subsequent appends are all new-format and the fallback goes dormant for that vault's lifetime.
 
 ### 5.5 Truncation — `wal::truncate`
 
@@ -487,19 +512,33 @@ pub enum Mutation {
     CreateFile(FileEntry),
     SetThumbnail   { file_id: String, thumb_id: String },
     RenameFile     { id: String, new_name: String },
-    DeleteFile     { id: String },
+    SetFileTags    { id: String, tag_ids: Vec<String> },
 
     CreateFolder(Folder),
     RenameFolder   { id: String, new_name: String },
-    DeleteFolder   { id: String },                          // cascades
 
     CreateTagGroup(TagGroup),
     RenameTagGroup { id: String, new_name: String },
-    DeleteTagGroup { id: String },                          // cascades
 
     CreateTag(Tag),
     UpdateTag      { id: String, new_name: Option<String>, color_change: ColorChange },
+
+    // Tag / tag group destructive delete (no soft-delete — see ADR-0005)
     DeleteTag      { id: String },                          // scrubs from files
+    DeleteTagGroup { id: String },                          // cascades to tags + scrubs
+
+    // Trash (soft delete — files + folders only; ADR-0005)
+    TrashFile      { id: String, deleted_at: u64 },
+    TrashFolder    { id: String, deleted_at: u64 },         // cascade-stamps subtree
+
+    // Restore (undelete — clears the stamp)
+    RestoreFile    { id: String, target_folder_id: Option<String> },
+    RestoreFolder  { id: String },                          // does NOT cascade
+
+    // Purge (permanent delete — reachable from Trash view only)
+    PurgeFile      { id: String },
+    PurgeFolder    { id: String },                          // cascades like old DeleteFolder
+    EmptyTrash,                                             // purges every trashed file + folder
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -535,21 +574,27 @@ pub struct ApplyOutcome {
 |---------|--------------|---------|
 | `CreateFile(entry)` | Push to `doc.files` IF id doesn't already exist (idempotent) | — |
 | `SetThumbnail { file_id, thumb_id }` | Set `file.thumb_id = Some(thumb_id)`, no-op if file missing | — |
-| `RenameFile { id, new_name }` | Update name, no-op if file missing | — |
-| `DeleteFile { id }` | Remove from `doc.files`, returns removed FileEntry in outcome | — |
+| `RenameFile { id, new_name }` | Update name AND recompute `extension` via `extract_extension(new_name)`, no-op if file missing | — |
+| `SetFileTags { id, tag_ids }` | Replace the entire tag set for a file; no-op if file missing | — |
 | `CreateFolder(folder)` | Push IF id doesn't exist (idempotent) | — |
 | `RenameFolder { id, new_name }` | Update name, no-op if folder missing | — |
-| `DeleteFolder { id }` | BFS the folder subtree, remove all descendant folders and every file whose `folder_id` falls in the subtree. Returns full `(folder_ids, removed_files)` in outcome | **Folders + files** |
 | `CreateTagGroup(group)` | Push IF id doesn't exist (idempotent) | — |
 | `RenameTagGroup { id, new_name }` | Update name, no-op if group missing | — |
-| `DeleteTagGroup { id }` | Remove group; remove every tag whose `group_id` matches; scrub those tag ids from every file's `tag_ids`. Returns removed tag ids in outcome | **Tags + file tag_ids** |
 | `CreateTag(tag)` | Push IF id doesn't exist (idempotent) | — |
 | `UpdateTag { id, new_name, color_change }` | If `new_name`, set name; match on `color_change` (Unchanged/Set/Clear). No-op if tag missing | — |
-| `DeleteTag { id }` | Remove tag; scrub from every file's `tag_ids` | **File tag_ids** |
+| `DeleteTag { id }` | Remove tag; scrub from every file's `tag_ids`. **Destructive** — no soft-delete for tags. | **File tag_ids** |
+| `DeleteTagGroup { id }` | Remove group; remove every tag whose `group_id` matches; scrub those tag ids from every file's `tag_ids`. Returns removed tag ids in outcome. **Destructive** — no soft-delete for groups. | **Tags + file tag_ids** |
+| `TrashFile { id, deleted_at }` | Stamp `deleted_at` on the file. Blob + thumb stay on disk. Idempotent against already-trashed (keeps original timestamp). | — |
+| `TrashFolder { id, deleted_at }` | BFS the subtree; stamp `deleted_at` on every descendant folder + every file with `folder_id` in the subtree. Items already trashed keep their existing timestamp. | **Folders + files** (stamp, not remove) |
+| `RestoreFile { id, target_folder_id }` | Clear `deleted_at`; set `folder_id = target_folder_id`. The frontend resolves the "parent still trashed?" question and chooses the target. | — |
+| `RestoreFolder { id }` | Clear `deleted_at` on just that folder. Does NOT cascade (per ADR-0005 per-item restorability — the frontend restores ancestor chains explicitly). | — |
+| `PurgeFile { id }` | Remove from `doc.files`. Returns removed FileEntry in outcome for blob+thumb cleanup. | — |
+| `PurgeFolder { id }` | BFS the subtree, remove all descendant folders and every file whose `folder_id` falls in the subtree. Returns full `(folder_ids, removed_files)` in outcome. (Same body as the old `DeleteFolder`.) | **Folders + files** |
+| `EmptyTrash` | Remove every file + folder with `deleted_at.is_some()`. Returns `removed_files` (with FileEntry for blob cleanup) + `removed_folder_ids` in outcome. Skips tags/groups (they're never soft-deletable). | **All trashed files + folders** |
 
-### 7.3 Idempotency contract for Create*
+### 7.3 Idempotency contract for Create* and Trash*
 
-All four `Create*` variants check `!iter().any(|x| x.id == new.id)` before pushing. This matters for **crashed compactions**:
+All four `Create*` variants check `!iter().any(|x| x.id == new.id)` before pushing. The `Trash*` variants only stamp `deleted_at` when it's currently `None` — re-stamping an already-trashed item keeps the original timestamp. Both properties matter for **crashed compactions**:
 
 ```
 Time t1: User does some mutations, WAL grows.
@@ -562,11 +607,13 @@ Next unlock:
 - Replay WAL (still has all the same mutations on disk).
 - Each Create* is a no-op (id already in doc).
 - Each Rename/Update reapplies same change (already idempotent).
-- Each Delete reapplies (target already gone — no-op).
+- Each Trash* is a no-op against an already-stamped target.
+- Each Delete*/Purge* reapplies (target already gone — no-op).
+- Each Restore* re-clears `deleted_at` to None (already None — no-op).
 - State is correct.
 ```
 
-Without idempotent Creates, the same scenario would produce duplicate file/folder/tag entries.
+Without idempotent Creates, the same scenario would produce duplicate entries. Without idempotent Trash*, the trash-view sort order could shift after every recovery.
 
 ### 7.4 Folder cycle protection
 
@@ -840,12 +887,13 @@ For the realistic personal-vault threat model ("I lose this disk or someone copi
 | 7 | `set_path` uses `path.to_string_lossy()` on Windows paths | Loses fidelity for non-UTF-8 paths. Niche. |
 | 8 | Vault folder isn't isolated — if user picks a dir with other files, they coexist | Acceptable; cleanup_tmp_files only touches `*.tmp`. |
 | 9 | No explicit "this header isn't authenticated by anything outside its chunks" — if all chunks have valid AAD, header is implicitly authenticated, but only via the chunks themselves. There's no separate header MAC. | The AAD scheme is the de-facto auth; this is by design. |
+| 10 | `restore_file` / `restore_folder` can fail with `NameCollision` when a live sibling has appeared while the item was in trash. Frontend currently surfaces this as a generic error toast. | UX gap, not a correctness gap. Future: dialog with Rename / Cancel. See [[../decisions/0006-name-uniqueness]]. |
 
 ---
 
 ## 16. Test inventory
 
-67 tests, ~190 ms runtime. `cargo test --lib`.
+130 tests, ~2 s runtime. `cargo test --lib`. Counts grew from 82 (pre-bucketing) → 94 (after the recycle-bin metadata-layer tests) → 105 (after the VaultState integration tests in ADR-0005) → 114 (extension field + rename-recomputes-extension + fixup tests) → 130 (16 name-collision tests across files, folders, tags, tag groups, and the restore paths — see ADR-0006).
 
 ### 16.1 `metadata::tests` (26 tests) — `Mutation::apply` semantics
 
@@ -891,7 +939,7 @@ For the realistic personal-vault threat model ("I lose this disk or someone copi
 | `src-tauri/src/lib.rs` | Tauri setup + URI scheme handler | `run`, `dispatch_mv`, `parse_range` |
 | `src-tauri/src/commands.rs` | Tauri commands (the IPC surface) | One per user-facing operation |
 | `src-tauri/src/vault.rs` | `VaultState` + lifecycle + every mutation method | `create`, `unlock`, `lock`, `set_path`, `import_file`, `set_thumbnail`, `rename_file`, `delete_file`, `create_folder`, `rename_folder`, `delete_folder`, `create_tag_group`, `rename_tag_group`, `delete_tag_group`, `create_tag`, `update_tag`, `delete_tag`, `read_blob*`, `export_file`, `export_zip`, `migrate_legacy_blobs`, `snapshot_path_and_key`, `acquire_vault_lock`, `cleanup_tmp_files`, `compact` |
-| `src-tauri/src/metadata.rs` | `MetadataDoc`, `Mutation`, `ColorChange`, `ApplyOutcome`, snapshot read/write | `load`, `save`, `Mutation::apply` |
+| `src-tauri/src/metadata.rs` | `MetadataDoc`, `Mutation`, `ColorChange`, `ApplyOutcome`, snapshot read/write, uniqueness helpers, extension helper | `load`, `save`, `Mutation::apply`, `extract_extension`, `fixup_extensions`, `file_name_collides_in_folder`, `folder_name_collides_in_parent`, `tag_name_collides_in_group`, `tag_group_name_collides` |
 | `src-tauri/src/wal.rs` | WAL format and operations | `append`, `replay_into`, `truncate`, `size` |
 | `src-tauri/src/blobs.rs` | Blob format (v3 / v2 / legacy) and operations | `write_blob`, `read_blob`, `read_blob_range`, `read_blob_size`, `stream_blob`, `delete_blob`, `migrate_v2_blobs_in_dir`, `aad_for_chunk`, `BlobFormat::detect` |
 | `src-tauri/src/crypto.rs` | KDF + AEAD primitives | `derive_key`, `aead_encrypt`, `aead_decrypt`, `generate_salt`, `generate_key_bytes`, `KdfParams` |
@@ -907,3 +955,7 @@ For the realistic personal-vault threat model ("I lose this disk or someone copi
 - [[decisions/0001-wal-instead-of-rewriting-snapshot]] — why WAL was chosen over the "rewrite metadata.enc on every mutation" pattern.
 - [[decisions/0002-aad-binding-blob-v3]] — why every chunk's AEAD authenticates the header + chunk_idx.
 - [[decisions/0003-cross-process-vault-lock]] — why a `vault.lock` file + `fs4` rather than the Tauri single-instance plugin.
+- [[decisions/0004-bucketed-blob-layout]] — why blobs are stored under `<dir>/<aa>/<uuid>.enc` instead of flat.
+- [[decisions/0005-recycle-bin-soft-delete]] — soft-delete recycle bin for files + folders (`deleted_at` on `FileEntry`/`Folder`, `Trash*`/`Restore*`/`Purge*`/`EmptyTrash` mutations).
+- [[decisions/0006-name-uniqueness]] — case-insensitive per-scope name uniqueness (files per folder, folders per parent, tags per group, tag groups global), enforced in import/rename/restore + frontend `NameConflictDialog` for the import path.
+- [[security]] — threat model, integrity-binding scheme summary, IPC hardening, lock-time invalidation. Updated after the 2026-05-21 security audit pass.

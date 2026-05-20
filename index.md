@@ -16,7 +16,7 @@ _None yet._
 
 ## Projects
 
-- [[projects/mediavault/_moc|MediaVault]] — Tauri 2 encrypted media vault; Rust storage layer with WAL, AEAD-with-AAD chunked blobs, cross-process locking, streaming exports
+- [[projects/mediavault/_moc|MediaVault]] — Tauri 2 encrypted media vault; Rust storage layer with WAL, AEAD-with-AAD chunked blobs, cross-process locking, streaming exports, post-audit IPC hardening + position-bound WAL + AAD-bound master-key wrap
 
 ## Guides
 
