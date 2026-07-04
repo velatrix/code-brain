@@ -17,6 +17,7 @@ _None yet._
 ## Projects
 
 - [[projects/mediavault/_moc|MediaVault]] — Tauri 2 encrypted media vault; Rust storage layer with WAL, AEAD-with-AAD chunked blobs, cross-process locking, streaming exports, post-audit IPC hardening + position-bound WAL + AAD-bound master-key wrap
+- [[projects/spectium/_moc|Spectium]] — visual test automation SaaS (node-graph flows, web + Android runners); repo `F:\Projects\TestUp` is the design source of truth; vault holds cross-cutting research — see [[projects/spectium/notes/market-research-project-structure|multi-platform project-structure market research]]
 
 ## Guides
 
