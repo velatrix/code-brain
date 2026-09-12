@@ -2,10 +2,10 @@
 type: wiki-entity
 title: VAppCore
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-09-12
 aliases: [VAppCore, vappcore]
 tags: [entity, library, dotnet, web-api]
-version: "2.2.0"
+version: "2.2.3"
 target-framework: net10.0
 repo-path: F:\Projects\VAppCore
 distribution: nuget-local
@@ -37,9 +37,11 @@ A composable bundle of cross-cutting concerns for CRUD-heavy web APIs:
 ## Distribution
 
 - **NuGet only** — consumed from local feed `F:\Packages\C#`. **Never** as `<ProjectReference>`, even on the same machine. Per the project's CLAUDE.md.
-- **Current version:** 2.2.0
+- **Current version:** 2.2.3 — 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
 - **Pack:** `dotnet pack -c Release -o "F:\Packages\C#"` (bump `<Version>` in `VAppCore.csproj` first)
 - **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="2.2.0" />`
+- **Consume without the drive letter (the Spectium pattern, since 2026-09-12):** commit the `.nupkg` inside the consumer repo (Spectium: `Backend/packages/`) and point a `nuget.config` at that folder. Put the config where every restore path finds it: the repo root for solution- and test-project restores, plus one beside the csproj when a Docker build context is that folder alone (the Spectium backend image copies `nuget.config` + `packages/` before `dotnet restore`). No credentials, works on any host and in CI; upgrade = drop the new `.nupkg`, delete the old one, bump the reference.
+- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`) on 2.2.3 since 2026-09-12 (its BACKLOG B13) — query layer + error types only; it does **not** call `AddVAppCore` (see Anti-patterns).
 - **Sibling package:** `VAppCore.RateLimiting.Redis` — separate NuGet, opt-in Redis store for rate limiting
 
 ## Architecture overview
@@ -306,7 +308,7 @@ public async Task<IActionResult> GetAll(VQueryParser parser)
     => Ok(await products.GetPagedAsync(parser));
 ```
 
-Disallowed fields → HTTP 422 with the list of allowed fields.
+Disallowed fields → HTTP 422 with the list of allowed fields (as documented; in practice 500 — see the caveat under **Error handling**).
 
 ### Pagination modes
 
@@ -318,7 +320,7 @@ Disallowed fields → HTTP 422 with the list of allowed fields.
 | `?before=X` | **Cursor (backward)** | Returns rows in display order, before cursor |
 | `?page=N` | **Offset** | Only if filter opted in via `EnablePageNavigation()`, else 400 |
 
-Response shape is unified `VPagedResponse<T>` for both modes; cursor mode has `nextCursor`/`previousCursor`, offset mode adds `page`/`totalItems`/`totalPages`.
+Response shape is unified `VPagedResponse<T>` for both modes; cursor mode has `nextCursor`/`previousCursor`, offset mode adds `page`/`totalItems`/`totalPages`. `hasMore` is meaningful in both modes since **2.2.3** (offset mode left it `false` before). `VQueryParser.ApplyWithProjectionAsync` honours `?page=N` regardless of `EnablePageNavigation()`; only `VService.GetPagedAsync` enforces the opt-in, so a consumer that calls the parser directly (Spectium) runs page mode everywhere without touching its filters.
 
 **Cursor encryption** — set `CursorEncryptionKeys` on options to enable AES-GCM with key rotation:
 
@@ -494,6 +496,8 @@ All take an `ErrorObject { Message, MessageKey, Metadata }`. `MessageKey` is the
 
 ASP.NET model validation errors auto-converted to 422 in the same shape.
 
+**Caveat (verified 2026-09-12):** `RsqlValidationException`, `RsqlParseException` and `CursorDecodeException` derive from `Exception`, not `BaseError`, so `VExceptionMiddleware` answers a malformed `filter` / `sort` / `select` / cursor with **500**, not the 400/422 the README states. Map them in the consumer until the library makes them `BaseError`s (the Spectium `ErrorInterceptor` maps all three to `400 INVALID_QUERY`).
+
 ## Response mapping
 
 `VResponse.Map(entity, dto)` and `VResponse.MapList(entities, dto)` enforced by `VResponseFilter` (MVC filter): **raw entity returns are blocked at runtime.** Either wrap in `VResponse.Map` / `MapList`, or return `VPagedResponse<T>` from `GetPagedAsync` (exempt).
@@ -506,7 +510,7 @@ This prevents accidentally serializing internal entity fields. The filter reject
 |---|---|
 | **Target framework** | `net10.0` (per README header; current 2.x line) |
 | **EF Core** | Tracks .NET 10 — bump VAppCore if the consuming app moves EF Core majors |
-| **Distribution** | NuGet from `F:\Packages\C#` only; never `<ProjectReference>` |
+| **Distribution** | NuGet only; never `<ProjectReference>`. From `F:\Packages\C#` on this machine, or from a `.nupkg` committed in the consumer repo (see Distribution) |
 | **DbContext base** | Any — `DbContext`, `IdentityDbContext`, custom. Wiring is at options level (v1.1+; before that `VDbContext` inheritance was required — that path is gone). |
 | **MVC vs Minimal APIs** | `[VAuthorize]`, `[UseVQueryParser]`, `[VRateLimit]`, `VResponseFilter` are MVC filters. **Minimal APIs lose all four.** Use controllers for any VAppCore-backed endpoint. |
 | **Multi-tenancy filter** | Requires `IVTenantContext<T>` on your `DbContext`. Without it, `TenantId` is still auto-assigned on Add but no global filter is applied. |
@@ -552,6 +556,7 @@ await Db.TransactionAsync(async () => {
 ## Anti-patterns
 
 - **Inheriting `VDbContext`** — that class is gone (v1.1+). Plain `DbContext` + `UseVAppCore`.
+- **Calling `AddVAppCore` in an app whose controllers return raw DTOs** — it registers `VResponseFilter` globally and every such endpoint becomes a 500. To consume only the query layer and the error types, register `VQueryParserBinderProvider` yourself and `using VAppCore;` (Spectium does exactly this).
 - **Returning raw entities from controllers** — `VResponseFilter` blocks it at runtime. Use `VResponse.Map`/`MapList` or `VPagedResponse<T>`.
 - **Building a Minimal API on top of VAppCore** — you lose the MVC filters (`VAuthorize`, query parser, rate limit, response filter). Use controllers.
 - **Mixing EF Core majors** — pinning constraint is real. Bump VAppCore first to the EF Core major you need.
