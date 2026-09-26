@@ -2,10 +2,10 @@
 type: wiki-entity
 title: VAppCore
 created: 2026-05-13
-updated: 2026-09-12
+updated: 2026-09-26
 aliases: [VAppCore, vappcore]
 tags: [entity, library, dotnet, web-api]
-version: "2.2.3"
+version: "3.0.0"
 target-framework: net10.0
 repo-path: F:\Projects\VAppCore
 distribution: nuget-local
@@ -37,11 +37,11 @@ A composable bundle of cross-cutting concerns for CRUD-heavy web APIs:
 ## Distribution
 
 - **NuGet only** — consumed from local feed `F:\Packages\C#`. **Never** as `<ProjectReference>`, even on the same machine. Per the project's CLAUDE.md.
-- **Current version:** 2.2.3 — 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
+- **Current version:** 3.0.0 (2026-09-26, commit `1a3217f`, **not yet pushed**) — scoped authorization, see [[#Scoped authorization (3.0.0)]]; breaking because `[VAuthorize]` moved to the authorization stage. 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
 - **Pack:** `dotnet pack -c Release -o "F:\Packages\C#"` (bump `<Version>` in `VAppCore.csproj` first)
-- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="2.2.0" />`
+- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="3.0.0" />`
 - **Consume without the drive letter (the Spectium pattern, since 2026-09-12):** commit the `.nupkg` inside the consumer repo (Spectium: `Backend/packages/`) and point a `nuget.config` at that folder. Put the config where every restore path finds it: the repo root for solution- and test-project restores, plus one beside the csproj when a Docker build context is that folder alone (the Spectium backend image copies `nuget.config` + `packages/` before `dotnet restore`). No credentials, works on any host and in CI; upgrade = drop the new `.nupkg`, delete the old one, bump the reference.
-- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`) on 2.2.3 since 2026-09-12 (its BACKLOG B13) — query layer + error types only; it does **not** call `AddVAppCore` (see Anti-patterns).
+- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`): 2.2.3 on its `main` since 2026-09-12 (its BACKLOG B13) — query layer + error types only; 3.0.0 on its `feat/access-control` branch, which also enforces every endpoint through the scoped authorization (`AddVAuthorization()`). It never calls `AddVAppCore` (see Anti-patterns).
 - **Sibling package:** `VAppCore.RateLimiting.Redis` — separate NuGet, opt-in Redis store for rate limiting
 
 ## Architecture overview
@@ -198,6 +198,25 @@ MVC filter, stackable (multiple attributes = AND):
 ```
 
 Unauthorized → 401, forbidden → 403, both in the standard error envelope. No attribute = public endpoint.
+
+### Scoped authorization (3.0.0)
+
+For permissions held *in* something — a project, an organization — rather than globally:
+
+```csharp
+[VAuthorize(Scope = "project", Permission = "tasks.view")]     // the route value projectId names the scope
+[VAuthorize(Scope = "project", ScopeFrom = "taskId", Permission = "tasks.update")]  // or an entity of one
+[VAuthorize(Scope = "project", AnyOf = new[] { "a.view", "b.view" })]              // one of several
+[VAuthorize(Scope = "project", Unbound = new[] { "buildId" })] // a route id deliberately from elsewhere
+```
+
+- The app implements **`IScopeAccessResolver`**: (caller, scope) → hidden, or visible with the caller's keys there. It is asked at most once per scope per request.
+- Register scopes and the entities that belong to them: `services.AddVAuthorization(o => o.AddScope<Guid>("project", "projectId", notFound).AddEntity<Guid>("project", "taskId", locator, notFound))`.
+- Answers: not signed in → 401; a scope the caller may not see → the scope's 404, exactly what a never-issued id gets; visible but missing the permission → 403 (`VAuthorizationOptions.Forbidden` shapes it). Every other route value registered as an entity of the scope must belong to it, or it answers the entity's 404 — so a foreign id and a missing one read alike.
+- Runs as an **authorization filter**, before model binding: a refusal comes before any validation error, and a large body is not read first. `[AllowAnonymous]` switches it off.
+- Hubs: **`VAuthorizeHubFilter`** applies the same declarations to SignalR hub methods (`ScopeFrom` names a parameter; a refusal is a `HubException` carrying the message key).
+- **`IVAccess`** asks the same resolver inside services. **`VAuthorizationCatalog`** lists every action and hub method with its declarations, and **`app.VerifyVAuthorization()`** refuses to start with an undeclared endpoint, an unregistered scope, a `ScopeFrom` that names nothing, or an unbound route value.
+- Standalone: `AddVAuthorization()` needs no `AddVAppCore` (and so no `VResponseFilter`); `AddVAppCore` calls it.
 
 ## VService
 
@@ -512,7 +531,7 @@ This prevents accidentally serializing internal entity fields. The filter reject
 | **EF Core** | Tracks .NET 10 — bump VAppCore if the consuming app moves EF Core majors |
 | **Distribution** | NuGet only; never `<ProjectReference>`. From `F:\Packages\C#` on this machine, or from a `.nupkg` committed in the consumer repo (see Distribution) |
 | **DbContext base** | Any — `DbContext`, `IdentityDbContext`, custom. Wiring is at options level (v1.1+; before that `VDbContext` inheritance was required — that path is gone). |
-| **MVC vs Minimal APIs** | `[VAuthorize]`, `[UseVQueryParser]`, `[VRateLimit]`, `VResponseFilter` are MVC filters. **Minimal APIs lose all four.** Use controllers for any VAppCore-backed endpoint. |
+| **MVC vs Minimal APIs** | `[VAuthorize]`, `[UseVQueryParser]`, `[VRateLimit]`, `VResponseFilter` are MVC filters. **Minimal APIs lose all four.** Use controllers for any VAppCore-backed endpoint. Since 3.0.0 `[VAuthorize]` also covers SignalR hub methods (`VAuthorizeHubFilter`); `VerifyVAuthorization` skips minimal endpoints, so they stay unchecked. |
 | **Multi-tenancy filter** | Requires `IVTenantContext<T>` on your `DbContext`. Without it, `TenantId` is still auto-assigned on Add but no global filter is applied. |
 | **Audit log interceptor order** | Must come AFTER `UseVAppCore` so it reads post-transform state (soft deletes become `Action=Delete`, not `Modify`). |
 | **Outbox handlers** | At-least-once delivery — handlers MUST be idempotent. `EventContext.MessageId` is the idempotency key. |
@@ -570,7 +589,7 @@ await Db.TransactionAsync(async () => {
 
 ## Sources
 
-- Primary: `F:\Projects\VAppCore\README.md` (v2.2.0)
+- Primary: `F:\Projects\VAppCore\README.md` (v3.0.0)
 - Roadmap: `F:\Projects\VAppCore\ROADMAP.md`
 - Distribution policy: `F:\Projects\VAppCore\CLAUDE.md`
 - Source root: `F:\Projects\VAppCore\VAppCore\src\`
