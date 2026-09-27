@@ -2,10 +2,10 @@
 type: wiki-entity
 title: VAppCore
 created: 2026-05-13
-updated: 2026-09-26
+updated: 2026-09-27
 aliases: [VAppCore, vappcore]
 tags: [entity, library, dotnet, web-api]
-version: "3.0.0"
+version: "3.1.0"
 target-framework: net10.0
 repo-path: F:\Projects\VAppCore
 distribution: nuget-local
@@ -37,11 +37,11 @@ A composable bundle of cross-cutting concerns for CRUD-heavy web APIs:
 ## Distribution
 
 - **NuGet only** — consumed from local feed `F:\Packages\C#`. **Never** as `<ProjectReference>`, even on the same machine. Per the project's CLAUDE.md.
-- **Current version:** 3.0.0 (2026-09-26, commit `1a3217f`, **not yet pushed**) — scoped authorization, see [[#Scoped authorization (3.0.0)]]; breaking because `[VAuthorize]` moved to the authorization stage. 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
+- **Current version:** 3.1.0 (2026-09-27, commit `12791d8`, **not yet pushed**) — the in-memory rate-limit store evicts full buckets and keeps time on the monotonic clock, see [[#Rate limiting]]; not breaking. 3.0.0 (2026-09-26, `1a3217f`, pushed) — scoped authorization, see [[#Scoped authorization (3.0.0)]]; breaking because `[VAuthorize]` moved to the authorization stage. 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
 - **Pack:** `dotnet pack -c Release -o "F:\Packages\C#"` (bump `<Version>` in `VAppCore.csproj` first)
-- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="3.0.0" />`
+- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="3.1.0" />`
 - **Consume without the drive letter (the Spectium pattern, since 2026-09-12):** commit the `.nupkg` inside the consumer repo (Spectium: `Backend/packages/`) and point a `nuget.config` at that folder. Put the config where every restore path finds it: the repo root for solution- and test-project restores, plus one beside the csproj when a Docker build context is that folder alone (the Spectium backend image copies `nuget.config` + `packages/` before `dotnet restore`). No credentials, works on any host and in CI; upgrade = drop the new `.nupkg`, delete the old one, bump the reference.
-- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`): 2.2.3 on its `main` since 2026-09-12 (its BACKLOG B13) — query layer + error types only; 3.0.0 on its `feat/access-control` branch, which also enforces every endpoint through the scoped authorization (`AddVAuthorization()`). It never calls `AddVAppCore` (see Anti-patterns).
+- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`): the query layer and error types since 2026-09-12 (its BACKLOG B13); 3.0.0 on its `main` since its access-control AC3, which enforces every endpoint through the scoped authorization (`AddVAuthorization()`); 3.1.0 on its `feat/access-control` branch, whose sign-in throttles use `[VRateLimit]` with a partitioner of its own. It never calls `AddVAppCore` (see Anti-patterns).
 - **Sibling package:** `VAppCore.RateLimiting.Redis` — separate NuGet, opt-in Redis store for rate limiting
 
 ## Architecture overview
@@ -52,11 +52,12 @@ Wiring is at the **DI/options level** — your `DbContext` inherits whatever it 
 ┌─────────────────────────────────────────────────────┐
 │  HTTP pipeline                                      │
 │  VRateLimitMiddleware → VExceptionMiddleware → MVC  │
+│  ([VRateLimit] is endpoint metadata: any endpoint)  │
 └─────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────┐
 │  MVC layer (filters)                                │
-│  [VAuthorize] · [UseVQueryParser] · [VRateLimit]    │
+│  [VAuthorize] · [UseVQueryParser]                   │
 │  + VResponseFilter (blocks raw entity returns)      │
 └─────────────────────────────────────────────────────┘
                           ↓
@@ -449,8 +450,10 @@ services.AddVAppCoreRateLimiting(o =>
     o.TierMultipliers["paid"] = 10;
     o.TierMultipliers["admin"] = double.MaxValue;   // unlimited
 });
-app.UseVRateLimiting();   // after UseRouting, before MapControllers
+app.UseVRateLimiting();   // after UseRouting and UseAuthentication, before MapControllers
 ```
+
+After `UseAuthentication`, or the partitioner sees every caller as anonymous and keys them all by address.
 
 **Default policies** — override or extend via the `Policies` dictionary on options:
 
@@ -467,18 +470,22 @@ services.AddVAppCoreRateLimiting(o =>
 | `VAppCoreRateLimitPolicies.Mutation` | 60/min | POST/PUT/DELETE on user data |
 | `VAppCoreRateLimitPolicies.Read` | 300/min | GET endpoints |
 
-**Apply** the `VRateLimit` attribute to a controller or action with the policy name and an optional `Cost`:
+**Apply** the `VRateLimit` attribute with the policy name and an optional `Cost`. The default policies' names are `vauth`, `vmutation` and `vread` — use the constants:
 
 ```csharp
-[VRateLimit("mutation", Cost = 5)]
+[VRateLimit(VAppCoreRateLimitPolicies.Mutation, Cost = 5)]   // "vmutation"
 public Task<IActionResult> CreateLobby(...);
 ```
 
-**Partitioner:** default is `user-{id}` for authenticated, `ip-{remoteIp}` for anonymous. Override via custom `IRateLimitPartitioner`.
+The middleware reads the matched endpoint's metadata, so a minimal API takes the same attribute: `app.MapPost("/auth/login", Login).WithMetadata(new VRateLimitAttribute(VAppCoreRateLimitPolicies.Auth))`.
+
+**Partitioner:** the default keys by `user-{name}` — the principal's name, else its first claim — when `ICurrentUser` is registered (`AddVAppCore` registers it) and the request is authenticated, else by `ip-{remoteIp}`. Behind a reverse proxy, `app.UseForwardedHeaders(...)` must run first with the proxy's networks as `KnownNetworks`/`KnownProxies`, or every anonymous client shares the proxy's bucket. Override via a custom `IRateLimitPartitioner` (Spectium keys by user id, else client address, an IPv6 one by its /64).
 
 **Tier multipliers:** keyed by role; highest match applied to capacity AND refill rate.
 
 **Rejection:** HTTP 429 with `Retry-After` header and the standard error envelope; the metadata kind is `rate_limited`.
+
+**In-memory store (3.1.0):** a bucket refilled to capacity is no different from a new one, so it is evicted — at most once per `MemoryStoreSweepInterval` (default a minute), by the first request after it. Memory follows the recent request rate, so partitions a caller chooses (addresses, emails) cannot grow it without bound; a bucket still in deficit is never forgotten. Refill runs on the registered `TimeProvider`'s monotonic clock. It is per process: N replicas allow up to N × a budget.
 
 **Distributed:** swap `MemoryRateLimitStore` for `VAppCore.RateLimiting.Redis` (separate NuGet) — atomic Lua script, multi-instance safe.
 
@@ -531,7 +538,7 @@ This prevents accidentally serializing internal entity fields. The filter reject
 | **EF Core** | Tracks .NET 10 — bump VAppCore if the consuming app moves EF Core majors |
 | **Distribution** | NuGet only; never `<ProjectReference>`. From `F:\Packages\C#` on this machine, or from a `.nupkg` committed in the consumer repo (see Distribution) |
 | **DbContext base** | Any — `DbContext`, `IdentityDbContext`, custom. Wiring is at options level (v1.1+; before that `VDbContext` inheritance was required — that path is gone). |
-| **MVC vs Minimal APIs** | `[VAuthorize]`, `[UseVQueryParser]`, `[VRateLimit]`, `VResponseFilter` are MVC filters. **Minimal APIs lose all four.** Use controllers for any VAppCore-backed endpoint. Since 3.0.0 `[VAuthorize]` also covers SignalR hub methods (`VAuthorizeHubFilter`); `VerifyVAuthorization` skips minimal endpoints, so they stay unchecked. |
+| **MVC vs Minimal APIs** | `[VAuthorize]`, `[UseVQueryParser]` and `VResponseFilter` are MVC filters. **Minimal APIs lose all three.** Use controllers for any VAppCore-backed endpoint. `[VRateLimit]` is endpoint metadata that `UseVRateLimiting()`'s middleware reads, so a minimal API takes it through `.WithMetadata(new VRateLimitAttribute(...))`. Since 3.0.0 `[VAuthorize]` also covers SignalR hub methods (`VAuthorizeHubFilter`); `VerifyVAuthorization` skips minimal endpoints, so they stay unchecked. |
 | **Multi-tenancy filter** | Requires `IVTenantContext<T>` on your `DbContext`. Without it, `TenantId` is still auto-assigned on Add but no global filter is applied. |
 | **Audit log interceptor order** | Must come AFTER `UseVAppCore` so it reads post-transform state (soft deletes become `Action=Delete`, not `Modify`). |
 | **Outbox handlers** | At-least-once delivery — handlers MUST be idempotent. `EventContext.MessageId` is the idempotency key. |
@@ -577,7 +584,7 @@ await Db.TransactionAsync(async () => {
 - **Inheriting `VDbContext`** — that class is gone (v1.1+). Plain `DbContext` + `UseVAppCore`.
 - **Calling `AddVAppCore` in an app whose controllers return raw DTOs** — it registers `VResponseFilter` globally and every such endpoint becomes a 500. To consume only the query layer and the error types, register `VQueryParserBinderProvider` yourself and `using VAppCore;` (Spectium does exactly this).
 - **Returning raw entities from controllers** — `VResponseFilter` blocks it at runtime. Use `VResponse.Map`/`MapList` or `VPagedResponse<T>`.
-- **Building a Minimal API on top of VAppCore** — you lose the MVC filters (`VAuthorize`, query parser, rate limit, response filter). Use controllers.
+- **Building a Minimal API on top of VAppCore** — you lose the MVC filters (`VAuthorize`, query parser, response filter; rate limiting survives, through `WithMetadata`). Use controllers.
 - **Mixing EF Core majors** — pinning constraint is real. Bump VAppCore first to the EF Core major you need.
 - **Non-idempotent outbox handlers** — at-least-once delivery means a handler can run twice. Idempotent by design, or use `EventContext.MessageId` as a dedup key.
 - **`UseLazyLoadingProxies` on `IAuditedEntity` types** — audit log records proxy type names instead of entity names.
@@ -589,7 +596,7 @@ await Db.TransactionAsync(async () => {
 
 ## Sources
 
-- Primary: `F:\Projects\VAppCore\README.md` (v3.0.0)
+- Primary: `F:\Projects\VAppCore\README.md` (v3.1.0)
 - Roadmap: `F:\Projects\VAppCore\ROADMAP.md`
 - Distribution policy: `F:\Projects\VAppCore\CLAUDE.md`
 - Source root: `F:\Projects\VAppCore\VAppCore\src\`
