@@ -2,10 +2,10 @@
 type: wiki-entity
 title: VAppCore
 created: 2026-05-13
-updated: 2026-09-27
+updated: 2026-09-28
 aliases: [VAppCore, vappcore]
 tags: [entity, library, dotnet, web-api]
-version: "3.1.0"
+version: "3.1.1"
 target-framework: net10.0
 repo-path: F:\Projects\VAppCore
 distribution: nuget-local
@@ -37,11 +37,11 @@ A composable bundle of cross-cutting concerns for CRUD-heavy web APIs:
 ## Distribution
 
 - **NuGet only** — consumed from local feed `F:\Packages\C#`. **Never** as `<ProjectReference>`, even on the same machine. Per the project's CLAUDE.md.
-- **Current version:** 3.1.0 (2026-09-27, commit `12791d8`, **not yet pushed**) — the in-memory rate-limit store evicts full buckets and keeps time on the monotonic clock, see [[#Rate limiting]]; not breaking. 3.0.0 (2026-09-26, `1a3217f`, pushed) — scoped authorization, see [[#Scoped authorization (3.0.0)]]; breaking because `[VAuthorize]` moved to the authorization stage. 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
+- **Current version:** 3.1.1 (2026-09-28, commit `9aaf73e`) — `=isnull=` and `=isnotnull=` take `true` alone, anything else a parse error (the RSQL section below); a fix that refuses what was silently misread. 3.1.0 (2026-09-27, `12791d8`) — the in-memory rate-limit store evicts full buckets and keeps time on the monotonic clock, see [[#Rate limiting]]; not breaking. 3.0.0 (2026-09-26, `1a3217f`) — scoped authorization, see [[#Scoped authorization (3.0.0)]]; breaking because `[VAuthorize]` moved to the authorization stage. 2.2.2 null-propagates nested projections across optional navigations (`np()`), 2.2.3 makes offset-mode `hasMore` real. Changelog: `F:\Projects\VAppCore\CHANGELOG.md`. Pack **after** committing so the nuspec repository commit is real.
 - **Pack:** `dotnet pack -c Release -o "F:\Packages\C#"` (bump `<Version>` in `VAppCore.csproj` first)
-- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="3.1.0" />`
+- **Consume:** Add `F:\Packages\C#` to the consuming repo's `nuget.config` as a package source, then `<PackageReference Include="VAppCore" Version="3.1.1" />`
 - **Consume without the drive letter (the Spectium pattern, since 2026-09-12):** commit the `.nupkg` inside the consumer repo (Spectium: `Backend/packages/`) and point a `nuget.config` at that folder. Put the config where every restore path finds it: the repo root for solution- and test-project restores, plus one beside the csproj when a Docker build context is that folder alone (the Spectium backend image copies `nuget.config` + `packages/` before `dotnet restore`). No credentials, works on any host and in CI; upgrade = drop the new `.nupkg`, delete the old one, bump the reference.
-- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`): the query layer and error types since 2026-09-12 (its BACKLOG B13); 3.0.0 on its `main` since its access-control AC3, which enforces every endpoint through the scoped authorization (`AddVAuthorization()`); 3.1.0 on its `feat/access-control` branch, whose sign-in throttles use `[VRateLimit]` with a partitioner of its own. It never calls `AddVAppCore` (see Anti-patterns).
+- **Consumers:** Spectium (`F:\Projects\TestUp`, `Backend/TestUp.csproj`): the query layer and error types since 2026-09-12 (its BACKLOG B13); 3.0.0 since its access-control AC3, which enforces every endpoint through the scoped authorization (`AddVAuthorization()`); 3.1.0 on its `main` since AC5, whose sign-in throttles use `[VRateLimit]` with a partitioner of its own; 3.1.1 on its `feat/access-control` branch since 2026-09-28 (its "Disabled" accounts filter had written `=isnull=false`). It never calls `AddVAppCore` (see Anti-patterns).
 - **Sibling package:** `VAppCore.RateLimiting.Redis` — separate NuGet, opt-in Redis store for rate limiting
 
 ## Architecture overview
@@ -278,6 +278,8 @@ name==John;age=gt=25,status=in=(Active,Pending)
 | `=isnotnull=` | is not null              |
 
 Combinators: `;` is AND, `,` is OR, parentheses override precedence.
+
+**The null operators take `true` alone (3.1.1).** Neither reads its value, so before 3.1.1 `deletedAt=isnull=false` meant "is null" — the opposite of what it says — and was answered inverted, in silence. Any value but `true` is now an `RsqlParseException` naming the operator that says it; for "is not null" write `=isnotnull=true`. (Spectium's `ErrorInterceptor` answers it `400 INVALID_QUERY`.)
 
 **Like patterns:**
 
@@ -596,7 +598,7 @@ await Db.TransactionAsync(async () => {
 
 ## Sources
 
-- Primary: `F:\Projects\VAppCore\README.md` (v3.1.0)
+- Primary: `F:\Projects\VAppCore\README.md` (v3.1.1)
 - Roadmap: `F:\Projects\VAppCore\ROADMAP.md`
 - Distribution policy: `F:\Projects\VAppCore\CLAUDE.md`
 - Source root: `F:\Projects\VAppCore\VAppCore\src\`
