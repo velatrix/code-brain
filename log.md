@@ -289,3 +289,24 @@ Lessons worth keeping outside the repo (accessibility; web clients; testing):
 - **A check's world should hold as much as a customer's.** A menu whose entries move by no key hid an unreachable entry in a dev world with few roles; the pass's world, whose list scrolls, showed it.
 - **A name written from a missing value passes a loose pattern.** "Delete: undefined" satisfies "an action, then its row"; refuse `undefined`, `null`, `NaN` and `[object Object]` by name.
 - **A rich-text editor's attributes can replace its own:** tiptap's `editorProps.attributes` replace the editor's `role="textbox"`, so a name given that way named a `div` with no role — give the role with the name.
+
+## [2026-09-29] project | Spectium: the store targets tested through Spectium itself; four defects it found fixed; on main and pushed
+Session 13 (2026-09-29). The user asked for flows in the product to test what had been built, neither scripted UI passes nor flows built by hand in the editor.
+
+`TestAppsFlows/seed.mjs`, new at the repo root, creates a **Store Demo** project through the API: the store test targets as applications, a test case per CRUD operation automated on both platforms, a shared sign-in flow per platform that re-seeds its data session first, and a suite per platform. The graphs are generated in the exact shape the editor saves, from the editor's own node registry.
+
+Running them through the product found four defects, each fixed with tests and red checks (repo BACKLOG B50–B53):
+- An idle multi-slot web runner hardly ever asked for batch work, so a suite waited 7 min 22 s to start; it now starts in 0.19 s.
+- Android's Clear first and Erase Text left a Flutter field's text in place.
+- A Swipe within a full-width element started in the Back gesture zone and closed the app.
+- A Swipe dropped from the palette had a Distance of 0 and moved nothing while passing.
+
+All eight flows and both suites pass on the web and on an API 35 emulator. The work was fast-forwarded into `main` at `0ac67f6` and pushed. [[projects/spectium/_moc]] status refreshed; [[wiki/vappcore]]'s consumers line brought up to date (3.1.1 on Spectium's `main`).
+
+Lessons worth keeping outside the repo (test-automation products; runners; generated artifacts):
+- **Run a product's own flows against its own test targets before trusting its node vocabulary.** Every node had unit tests, and four defects still waited for a flow to walk into them: a clear that cleared one character, a swipe that went home, a default that moved nothing, and a queue that starved. A fixture app is half the check; running it through the product is the other half.
+- **Build a generated artifact from its consumer's own definitions.** Importing the editor's node registry made generated nodes identical to dragged ones; a copied schema would drift. The registry is written for Vite, so a small Node resolve hook adds `.js` to its extensionless imports. Then check the claim where it is consumed: the generated flows were opened in the real editor.
+- **A permit that counts every in-flight request against a class's ceiling starves the lower class when the pollers move in step.** Idle pollers that all ask the high-priority queue first hold exactly the permits the low-priority check reads. Count only what can become low-priority work.
+- **Select-all is not a portable clear.** Ctrl+A sent through `input keycombination` selected nothing in a Flutter text field. Deleting as many characters forward and then back as the field holds empties it from any cursor position, and the length is in the accessibility tree.
+- **An element-relative swipe has to keep clear of the system's gesture zones.** A box as wide as the screen starts the swipe at its edge, where gesture navigation takes it for Back. The device lists its zones in `dumpsys window displays`, so read them, with a fixed margin as the fallback.
+- **A numeric field with a minimum and no default gets the minimum:** 0, for a swipe's distance. Give every field whose 0 means "nothing happens" a real default, and refuse the 0 where it is used, so a flow built on it cannot pass while doing nothing.
